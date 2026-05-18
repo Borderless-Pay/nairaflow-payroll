@@ -1,22 +1,30 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "@/lib/api";
 
 export default function PayrollPage() {
   const qc = useQueryClient();
+  const [error, setError] = useState("");
+
   const { data: payrolls = [] } = useQuery({
     queryKey: ["payrolls"],
     queryFn: () => api.get("/payroll").then((r) => r.data),
   });
 
   const create = useMutation({
-    mutationFn: () => api.post("/payroll", { companyId: localStorage.getItem("companyId") }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payrolls"] }),
+    mutationFn: () => {
+      const companyId = localStorage.getItem("companyId");
+      return api.post("/payroll", { companyId });
+    },
+    onSuccess: () => { setError(""); qc.invalidateQueries({ queryKey: ["payrolls"] }); },
+    onError: () => setError("Failed to create payroll run"),
   });
 
   const execute = useMutation({
     mutationFn: (id: string) => api.post(`/payroll/${id}/execute`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payrolls"] }),
+    onSuccess: () => { setError(""); qc.invalidateQueries({ queryKey: ["payrolls"] }); },
+    onError: () => setError("Stellar disbursement failed — check wallet balance"),
   });
 
   const statusColor: Record<string, string> = {
@@ -30,10 +38,11 @@ export default function PayrollPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Payroll</h1>
-        <button onClick={() => create.mutate()} className="bg-brand text-white px-4 py-2 rounded-lg font-medium">
-          Create Payroll Run
+        <button onClick={() => create.mutate()} disabled={create.isPending} className="bg-brand text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50">
+          {create.isPending ? "Creating…" : "Create Payroll Run"}
         </button>
       </div>
+      {error && <p className="text-red-500 text-sm">{error}</p>}
 
       <div className="bg-white rounded-xl shadow overflow-hidden">
         <table className="w-full text-sm">
@@ -49,8 +58,13 @@ export default function PayrollPage() {
                 <td className="px-4 py-3">{new Date(p.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">
                   {p.status === "PENDING" && (
-                    <button onClick={() => execute.mutate(p.id)} className="text-brand underline text-xs">
+                    <button onClick={() => execute.mutate(p.id)} disabled={execute.isPending} className="text-brand underline text-xs disabled:opacity-50">
                       Execute
+                    </button>
+                  )}
+                  {p.status === "FAILED" && (
+                    <button onClick={() => execute.mutate(p.id)} disabled={execute.isPending} className="text-red-500 underline text-xs disabled:opacity-50">
+                      Retry
                     </button>
                   )}
                 </td>

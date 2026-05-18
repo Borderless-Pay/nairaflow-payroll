@@ -6,12 +6,13 @@ import {
   Operation,
   Asset,
   Memo,
-  Server,
+  Horizon,
 } from "stellar-sdk";
 import prisma from "../lib/prisma";
 
-// Stellar Testnet server
-const server = new Server(process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org");
+const server = new Horizon.Server(
+  process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org"
+);
 
 const USDC_ASSET = new Asset(
   process.env.USDC_ASSET_CODE || "USDC",
@@ -31,7 +32,8 @@ export async function executeStellarPayroll(payments: PaymentRecord[]) {
 
   const txBuilder = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
-    networkPassphrase: process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET,
+    networkPassphrase:
+      process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET,
   }).addMemo(Memo.text("NairaFlow Payroll"));
 
   for (const payment of payments) {
@@ -49,7 +51,6 @@ export async function executeStellarPayroll(payments: PaymentRecord[]) {
 
   const result = await server.submitTransaction(tx);
 
-  // Update payment statuses
   await Promise.all(
     payments.map((p) =>
       prisma.payment.update({

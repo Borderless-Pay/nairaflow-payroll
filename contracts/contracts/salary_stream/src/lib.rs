@@ -1,13 +1,12 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
 
-/// A salary stream: employer locks funds, employee withdraws accrued amount over time.
 #[contracttype]
 pub struct Stream {
     pub employer: Address,
     pub employee: Address,
     pub token: Address,
-    pub rate_per_second: i128, // stroops per second
+    pub rate_per_second: i128,
     pub start_time: u64,
     pub end_time: u64,
     pub withdrawn: i128,
@@ -15,7 +14,7 @@ pub struct Stream {
 
 #[contracttype]
 pub enum DataKey {
-    Stream(u64), // stream_id -> Stream
+    Stream(u64),
     NextId,
 }
 
@@ -24,7 +23,7 @@ pub struct SalaryStreamContract;
 
 #[contractimpl]
 impl SalaryStreamContract {
-    /// Create a new salary stream. Employer deposits total amount upfront.
+    /// Create a salary stream. Employer deposits total amount upfront.
     pub fn create_stream(
         env: Env,
         employer: Address,
@@ -33,13 +32,14 @@ impl SalaryStreamContract {
         total_amount: i128,
         duration_secs: u64,
     ) -> u64 {
+        assert!(duration_secs > 0, "duration must be > 0");
+        assert!(total_amount > 0, "amount must be > 0");
         employer.require_auth();
 
         let start = env.ledger().timestamp();
         let end = start + duration_secs;
         let rate = total_amount / duration_secs as i128;
 
-        // Lock funds in contract
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&employer, &env.current_contract_address(), &total_amount);
 
@@ -59,8 +59,7 @@ impl SalaryStreamContract {
 
         let now = env.ledger().timestamp().min(stream.end_time);
         let elapsed = now.saturating_sub(stream.start_time) as i128;
-        let accrued = elapsed * stream.rate_per_second;
-        let claimable = accrued - stream.withdrawn;
+        let claimable = (elapsed * stream.rate_per_second) - stream.withdrawn;
 
         if claimable <= 0 {
             return 0;
@@ -86,7 +85,7 @@ impl SalaryStreamContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Env};
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Env};
 
     #[test]
     fn test_stream_and_withdraw() {
@@ -97,7 +96,7 @@ mod test {
         let employee = Address::generate(&env);
         let token_id = env.register_stellar_asset_contract_v2(employer.clone()).address();
         let token = token::StellarAssetClient::new(&env, &token_id);
-        token.mint(&employer, &3600_0000000); // 1 hour worth
+        token.mint(&employer, &3600_0000000);
 
         let contract_id = env.register(SalaryStreamContract, ());
         let client = SalaryStreamContractClient::new(&env, &contract_id);
@@ -109,5 +108,28 @@ mod test {
 
         let claimed = client.withdraw(&stream_id);
         assert_eq!(claimed, 1800_0000000);
+
+        // Second withdraw should get remaining half
+        env.ledger().with_mut(|l| l.timestamp += 1800);
+        let claimed2 = client.withdraw(&stream_id);
+        assert_eq!(claimed2, 1800_0000000);
+    }
+
+    #[test]
+    fn test_claimable() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let employer = Address::generate(&env);
+        let employee = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract_v2(employer.clone()).address();
+        token::StellarAssetClient::new(&env, &token_id).mint(&employer, &1000_0000000);
+
+        let contract_id = env.register(SalaryStreamContract, ());
+        let client = SalaryStreamContractClient::new(&env, &contract_id);
+        let stream_id = client.create_stream(&employer, &employee, &token_id, &1000_0000000, &1000);
+
+        env.ledger().with_mut(|l| l.timestamp += 500);
+        assert_eq!(client.claimable(&stream_id), 500_0000000);
     }
 }
