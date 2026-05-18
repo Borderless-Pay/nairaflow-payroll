@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  walletAddress String?
+  createdAt DateTime @default(now())
+  employees Employee[]
+  payrolls  Payroll[]
+}
+
+model Employee {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  walletAddress String
+  country       String
+  currency      String   @default("USDC")
+  salary        Float
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id])
+  createdAt     DateTime @default(now())
+  payments      Payment[]
+}
+
+model Payroll {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
+  totalAmount Float
+  status      PayrollStatus @default(PENDING)
+  scheduledAt DateTime?
+  executedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  payments    Payment[]
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  payrollId     String
+  payroll       Payroll       @relation(fields: [payrollId], references: [id])
+  employeeId    String
+  employee      Employee      @relation(fields: [employeeId], references: [id])
+  amount        Float
+  currency      String        @default("USDC")
+  txHash        String?
+  status        PaymentStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(EMPLOYER)
+  companyId    String?
+  createdAt    DateTime @default(now())
+}
+
+enum PayrollStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  SENT
+  CONFIRMED
+  FAILED
+}
+
+enum Role {
+  EMPLOYER
+  EMPLOYEE
+  ADMIN
+}
